@@ -3,5 +3,5 @@ uvicorn[standard]==0.29.0
 supabase==2.4.0
 pyjwt==2.8.0
 python-dotenv==1.0.1
-pydantic==2.7.1
+pydantic==2.11.5
 anthropic==0.28.0
