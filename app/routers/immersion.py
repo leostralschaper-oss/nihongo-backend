@@ -40,7 +40,7 @@ async def list_content(
 
 
 @router.get("/content/{content_id}")
-async def get_content(content_id: str, user=Depends(optional_user)):
+async def get_content(content_id: str, user=Depends(get_current_user)):
     """Get full immersion content with segments."""
     db = _get_supabase()
 
