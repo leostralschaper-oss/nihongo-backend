@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from app.routers import conversation, heatmap, immersion, vocab
+from app.routers import conversation, heatmap, immersion, user, vocab
 from app.middleware.auth import get_current_user
 
 
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
 app.include_router(heatmap.router,      prefix="/heatmap",      tags=["heatmap"])
 app.include_router(immersion.router,    prefix="/immersion",    tags=["immersion"])
+app.include_router(user.router,         prefix="/user",         tags=["user"])
 app.include_router(vocab.router,        prefix="/vocab",        tags=["vocab"])
 
 
