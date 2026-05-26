@@ -17,24 +17,51 @@ router = APIRouter()
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ---------------------------------------------------------------------------
-# Simple in-memory rate limiter: max 30 AI requests per user per hour
+# Rate limiter: Supabase-backed (persistent, cross-instance).
+# Falls back to in-memory if the RPC isn't deployed yet.
+# Limit: 30 AI requests per user per hour.
 # ---------------------------------------------------------------------------
-_rate_store: dict[str, list[float]] = defaultdict(list)
+from supabase import create_client
+
 _RATE_LIMIT = 30
-_RATE_WINDOW = 3600  # seconds
+_RATE_WINDOW = 3600  # seconds (used by in-memory fallback)
+_fallback_store: dict[str, list[float]] = defaultdict(list)
 
 
 def _check_rate_limit(user_id: str) -> None:
+    # Try Supabase first (atomic, persistent, multi-instance safe)
+    try:
+        db = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_KEY"],
+        )
+        result = db.rpc("check_ai_rate_limit", {
+            "uid": user_id,
+            "max_per_hour": _RATE_LIMIT,
+        }).execute()
+        if result.data is False:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded: max {_RATE_LIMIT} AI requests per hour.",
+            )
+        return
+    except HTTPException:
+        raise
+    except Exception:
+        # RPC missing or DB unreachable — fall back to in-memory
+        pass
+
+    # In-memory fallback (per-process, lost on restart, but safer than nothing)
     now = time.time()
     window_start = now - _RATE_WINDOW
-    calls = [t for t in _rate_store[user_id] if t > window_start]
+    calls = [t for t in _fallback_store[user_id] if t > window_start]
     if len(calls) >= _RATE_LIMIT:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Rate limit exceeded: max {_RATE_LIMIT} AI requests per hour.",
         )
     calls.append(now)
-    _rate_store[user_id] = calls
+    _fallback_store[user_id] = calls
 
 # ---------------------------------------------------------------------------
 # Personality system prompts
