@@ -23,13 +23,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow Flutter app origins
+# CORS — Flutter mobile app sends no Origin, web preview + future web app domains
+ALLOWED_ORIGINS = [
+    "http://localhost:4444",        # local web preview
+    "http://localhost:8080",        # flutter web dev
+    "https://nihongo.app",          # production web (future)
+    "https://www.nihongo.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Lock down to your domain in production
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Route registration

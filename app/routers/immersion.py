@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, Depends, Query
 from supabase import create_client
 
-from app.middleware.auth import optional_user
+from app.middleware.auth import get_current_user
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ async def list_content(
     category: str = Query(default="all"),
     limit: int = Query(default=20, le=50),
     offset: int = Query(default=0),
-    user=Depends(optional_user),
+    user=Depends(get_current_user),
 ):
     """List immersion content, optionally filtered by category."""
     db = _get_supabase()

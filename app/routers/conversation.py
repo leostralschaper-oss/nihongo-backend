@@ -1,18 +1,40 @@
 # nihongo_backend/app/routers/conversation.py
 import json
 import os
+import time
+from collections import defaultdict
 from typing import AsyncGenerator
 
 import anthropic
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.middleware.auth import optional_user
+from app.middleware.auth import get_current_user
 
 router = APIRouter()
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# ---------------------------------------------------------------------------
+# Simple in-memory rate limiter: max 30 AI requests per user per hour
+# ---------------------------------------------------------------------------
+_rate_store: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT = 30
+_RATE_WINDOW = 3600  # seconds
+
+
+def _check_rate_limit(user_id: str) -> None:
+    now = time.time()
+    window_start = now - _RATE_WINDOW
+    calls = [t for t in _rate_store[user_id] if t > window_start]
+    if len(calls) >= _RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded: max {_RATE_LIMIT} AI requests per hour.",
+        )
+    calls.append(now)
+    _rate_store[user_id] = calls
 
 # ---------------------------------------------------------------------------
 # Personality system prompts
@@ -79,6 +101,8 @@ class ConversationRequest(BaseModel):
     personality: str = "friendly_teacher"
     difficulty: str = "beginner"
 
+    model_config = {"str_max_length": 2000}  # cap message at 2000 chars
+
 
 # ---------------------------------------------------------------------------
 # Streaming endpoint
@@ -86,9 +110,10 @@ class ConversationRequest(BaseModel):
 @router.post("/stream")
 async def stream_conversation(
     request: ConversationRequest,
-    user=Depends(optional_user),
+    user=Depends(get_current_user),
 ):
     """Stream AI conversation responses via SSE."""
+    _check_rate_limit(user["sub"])
 
     personality = request.personality if request.personality in PERSONALITY_PROMPTS \
         else "friendly_teacher"
@@ -141,8 +166,9 @@ async def _stream_claude(system: str, messages: list) -> AsyncGenerator[str, Non
 @router.post("/message")
 async def single_message(
     request: ConversationRequest,
-    user=Depends(optional_user),
+    user=Depends(get_current_user),
 ):
+    _check_rate_limit(user["sub"])
     personality = request.personality if request.personality in PERSONALITY_PROMPTS \
         else "friendly_teacher"
     difficulty = request.difficulty if request.difficulty in DIFFICULTY_INSTRUCTIONS \
