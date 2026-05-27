@@ -20,6 +20,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 # Rate limiter: Supabase-backed (persistent, cross-instance).
 # Falls back to in-memory if the RPC isn't deployed yet.
 # Limit: 30 AI requests per user per hour.
+# Admin emails (comma-separated in ADMIN_EMAILS env var) bypass the limit.
 # ---------------------------------------------------------------------------
 from supabase import create_client
 
@@ -27,8 +28,24 @@ _RATE_LIMIT = 30
 _RATE_WINDOW = 3600  # seconds (used by in-memory fallback)
 _fallback_store: dict[str, list[float]] = defaultdict(list)
 
+_ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get("ADMIN_EMAILS", "schaper.leonard@gmail.com").split(",")
+    if e.strip()
+}
 
-def _check_rate_limit(user_id: str) -> None:
+
+def _is_admin(user: dict) -> bool:
+    email = (user.get("email") or "").lower()
+    return email in _ADMIN_EMAILS
+
+
+def _check_rate_limit(user: dict) -> None:
+    if _is_admin(user):
+        return
+
+    user_id = user["sub"]
+
     # Try Supabase first (atomic, persistent, multi-instance safe)
     try:
         db = create_client(
@@ -140,7 +157,7 @@ async def stream_conversation(
     user=Depends(get_current_user),
 ):
     """Stream AI conversation responses via SSE."""
-    _check_rate_limit(user["sub"])
+    _check_rate_limit(user)
 
     personality = request.personality if request.personality in PERSONALITY_PROMPTS \
         else "friendly_teacher"
@@ -195,7 +212,7 @@ async def single_message(
     request: ConversationRequest,
     user=Depends(get_current_user),
 ):
-    _check_rate_limit(user["sub"])
+    _check_rate_limit(user)
     personality = request.personality if request.personality in PERSONALITY_PROMPTS \
         else "friendly_teacher"
     difficulty = request.difficulty if request.difficulty in DIFFICULTY_INSTRUCTIONS \
